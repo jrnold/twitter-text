@@ -1,18 +1,19 @@
 // Generates compact regex fragments to simulate the functionality of Objective C in other languages
 
 import scala.io.Source
-    
-def allMatches(re: scala.util.matching.Regex) = ((0 to 0xD7FF)++(0xE000 to 0x10FFFF)).filterNot(i => re.findFirstIn(new String(Array(i), 0, 1)).isEmpty)  
+
+def allMatches(re: scala.util.matching.Regex) = ((0 to 0xD7FF)++(0xE000 to 0x10FFFF)).filterNot(i => re.findFirstIn(new String(Array(i), 0, 1)).isEmpty)
 
 def charRanges(ccs: Seq[Int]) = ccs.foldLeft(Seq[(Int, Int)]()) { case (((r1, r2) :: t), i) => if (i == r2 + 1) (r1, i) :: t else (i,i) :: (r1,r2) :: t; case (Nil, i) => (i,i) :: Nil }.reverse
-def utf16Pair(cc: Int) = if (cc < 0x10000) Seq(cc) else Seq(0xd800 + (((cc - 0x10000) >> 10) & 0x3ff), 0xdc00 + (cc & 0x3ff))    
+def utf16Pair(cc: Int) = if (cc < 0x10000) Seq(cc) else Seq(0xd800 + (((cc - 0x10000) >> 10) & 0x3ff), 0xdc00 + (cc & 0x3ff))
 def isPrintableChar(cc: Int) = cc < 0xff && "\\w".r.findFirstIn("%c".format(cc)).isDefined
 def escJavaChar(cc: Int) = utf16Pair(cc).map { case cu => (if (isPrintableChar(cu)) "%c" else if (cu < 0x100) "\\\\x%02x" else "\\\\u%04x").format(cu) }.mkString
 def escJavaScriptChar(cc: Int) = utf16Pair(cc).map { case cu => (if (isPrintableChar(cu)) "%c" else if (cu < 0x100) "\\x%02x" else "\\u%04x").format(cu) }.mkString
 def escRubyChar(cc: Int) = (if (isPrintableChar(cc)) "%c" else if (cc < 0x10000) "\\u%04x" else "\\u{%x}").format(cc)
 def escObjCChar(cc: Int) =  (if (isPrintableChar(cc)) "%c" else if (cc < 0x100) "\\x%02x" else if (cc < 0x10000) "\\u%04x" else "\\U%08x").format(cc)
-def joinCharClass(items: Seq[String]) = items.mkString(if (items.length > 1) "[" else "", "", if (items.length > 1) "]" else "") 
-def joinGroup(items: Seq[String]) = items.mkString(if (items.length > 1) "(?:" else "", "|", if (items.length > 1) ")" else "") 
+def escPythonChar(cc: Int) =  (if (isPrintableChar(cc)) "%c" else if (cc < 0x100) "\\x%02x" else if (cc < 0x10000) "\\u%04x" else "\\U%08x").format(cc)
+def joinCharClass(items: Seq[String]) = items.mkString(if (items.length > 1) "[" else "", "", if (items.length > 1) "]" else "")
+def joinGroup(items: Seq[String]) = items.mkString(if (items.length > 1) "(?:" else "", "|", if (items.length > 1) ")" else "")
 
 def formatRanges(rs: Seq[(Int, Int)], esc: Int => String) = rs.flatMap { case (r1, r2) => if (r1 == r2) Seq(esc(r1)) else if (r1 == r2 - 1) Seq(esc(r1), esc(r2)) else Seq(esc(r1), "-", esc(r2)) }
 def groupByUtf16(ccs: Seq[Int]) = ccs.map { utf16Pair(_).+:(-1).takeRight(2) }.groupBy { _.head }.toList.sortBy { _._1 }.map { case (g, items) => Seq(if (g < 0) Nil else Seq(g), items.map { _.last} ) }
@@ -20,7 +21,8 @@ def groupByUtf16(ccs: Seq[Int]) = ccs.map { utf16Pair(_).+:(-1).takeRight(2) }.g
 def regexForJava(ccs: Seq[Int]) = formatRanges(charRanges(ccs), escJavaChar).mkString
 def regexForJavaScript(ccs: Seq[Int]) = groupByUtf16(ccs).map { _.map { case cs => joinCharClass(formatRanges(charRanges(cs), escJavaScriptChar))}.mkString}.mkString("|")
 def regexForRuby(ccs: Seq[Int]) = formatRanges(charRanges(ccs), escRubyChar).mkString
-def regexForObjC(ccs: Seq[Int]) = joinCharClass(formatRanges(charRanges(ccs), escObjCChar))             
+def regexForObjC(ccs: Seq[Int]) = joinCharClass(formatRanges(charRanges(ccs), escObjCChar))
+def regexForPython(ccs: Seq[Int]) = joinCharClass(formatRanges(charRanges(ccs), escPythonChar))
 
 def formatMultilineJavaString(emojiRegex: String): String = {
   val lineRegex = ".{1,92}\\\\{0,2}[^\\\\]{0,5}(\\\\\\\\ud[c-f]\\\\w\\\\w)?".r
@@ -65,3 +67,10 @@ println("\n  // Generated from unicode_regex/unicode_regex_groups.scala, same as
 println(s"""  twttr.txt.regexen.bmpNumerals = /${regexForJavaScript(decimalNumbers.filterNot(isAstral)).stripPrefix("[").stripSuffix("]")}/;""")
 println(s"""  twttr.txt.regexen.astralNumerals = /${regexForJavaScript(decimalNumbers.filter(isAstral))}/;""")
 
+println("Regexes for Python\n")
+println("  // Generated from unicode_regex/unicode_regex_groups.scala, same as objective c's \\p{L}\\p{M}")
+println(s"""  HASHTAG_LETTERS_AND_MARKS = re.compile(r"${regexForPython(lettersAndMarks.filterNot(isAstral)).stripPrefix("[").stripSuffix("]")}") """)
+println(s""" ASTRAL_LETTERS_AND_MARKS = re.compile(r"${regexForPython(lettersAndMarks.filter(isAstral))}") """)
+println("\n  // Generated from unicode_regex/unicode_regex_groups.scala, same as objective c's \\p{Nd}")
+println(s"""  HASHTAG_NUMERALS = re.compile(r"${regexForPython(decimalNumbers.filterNot(isAstral)).stripPrefix("[").stripSuffix("]")}") """)
+println(s"""  ASTRAL_NUMERALS = re.compile(r"${regexForPython(decimalNumbers.filter(isAstral))}") """)
